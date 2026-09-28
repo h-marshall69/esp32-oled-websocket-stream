@@ -1,0 +1,1160 @@
+<!DOCTYPE html>
+<html lang="es">
+
+<head>
+  <meta charset="UTF-8">
+
+  <meta
+    name="viewport"
+    content="width=device-width, initial-scale=1.0"
+  >
+
+  <title>ESP32 OLED Stream</title>
+
+  <style>
+    body {
+      margin: 0;
+      padding: 30px;
+
+      background: #111;
+      color: white;
+
+      font-family: monospace;
+      text-align: center;
+    }
+
+    h1 {
+      margin-bottom: 10px;
+    }
+
+    #status {
+      margin: 18px;
+
+      font-size: 18px;
+      font-weight: bold;
+    }
+
+    #deviceStatus {
+      margin-bottom: 18px;
+      color: #aaa;
+    }
+
+    canvas {
+      width: 640px;
+      height: 320px;
+
+      max-width: 95vw;
+
+      background: black;
+
+      border: 2px solid #666;
+
+      image-rendering: pixelated;
+
+      cursor: crosshair;
+
+      touch-action: none;
+    }
+
+    button {
+      margin: 5px;
+
+      padding: 10px 16px;
+
+      font-size: 16px;
+
+      cursor: pointer;
+    }
+
+    .info {
+      margin-top: 15px;
+
+      color: #888;
+    }
+  </style>
+</head>
+
+<body>
+
+  <h1>ESP32 OLED STREAM</h1>
+
+  <div id="status">
+    Conectando servidor...
+  </div>
+
+  <div id="deviceStatus">
+    ESP32: esperando...
+  </div>
+
+  <canvas
+    id="oled"
+    width="128"
+    height="64">
+  </canvas>
+
+  <br>
+
+  <button onclick="connect()">
+    Reconectar
+  </button>
+
+  <button onclick="clearScreen()">
+    Limpiar
+  </button>
+
+  <button onclick="startAnimation()">
+    Animación
+  </button>
+
+  <button onclick="stopAnimation()">
+    Detener
+  </button>
+
+  <div class="info">
+    OLED 128x64 · Frame 1024 bytes
+  </div>
+
+
+<script>
+
+// =====================================================
+// CONFIGURACIÓN
+// =====================================================
+
+const WIDTH = 128;
+const HEIGHT = 64;
+
+const FRAME_SIZE =
+  WIDTH * HEIGHT / 8;
+
+const DEVICE_ID =
+  "oled-001";
+
+
+// El navegador utiliza automáticamente
+// el host desde donde cargó este HTML.
+//
+// LOCAL:
+// http://localhost:8080
+//      ↓
+// ws://localhost:8080
+//
+// PRODUCCIÓN:
+// https://dominio.com
+//      ↓
+// wss://dominio.com
+
+const WS_PROTOCOL =
+  location.protocol === "https:"
+    ? "wss:"
+    : "ws:";
+
+
+const WS_URL =
+  `${WS_PROTOCOL}//${location.host}` +
+  `/ws/browser?device=${encodeURIComponent(DEVICE_ID)}`;
+
+
+// =====================================================
+// CANVAS
+// =====================================================
+
+const canvas =
+  document.getElementById("oled");
+
+
+const ctx =
+  canvas.getContext(
+    "2d",
+    {
+      willReadFrequently: true
+    }
+  );
+
+
+ctx.imageSmoothingEnabled =
+  false;
+
+
+ctx.fillStyle =
+  "black";
+
+
+ctx.fillRect(
+  0,
+  0,
+  WIDTH,
+  HEIGHT
+);
+
+
+// =====================================================
+// ESTADO
+// =====================================================
+
+let socket = null;
+
+let reconnectTimer = null;
+
+let drawing = false;
+
+
+// ESP32
+
+let deviceOnline = false;
+let deviceReady = false;
+
+
+// Control de frames
+
+let frameInFlight = false;
+
+let pendingFrame = false;
+
+
+// Animación
+
+let animationRunning = false;
+
+let animationRequest = null;
+
+let lastAnimationTime = 0;
+
+const FRAME_INTERVAL = 50; // 20 FPS máximo
+
+let ballX = 6;
+
+let ballDirection = 1;
+
+
+// =====================================================
+// UI
+// =====================================================
+
+function setStatus(text) {
+
+  document.getElementById(
+    "status"
+  ).innerText = text;
+
+}
+
+
+function setDeviceStatus(text) {
+
+  document.getElementById(
+    "deviceStatus"
+  ).innerText =
+    `ESP32: ${text}`;
+
+}
+
+
+// =====================================================
+// WEBSOCKET
+// =====================================================
+
+function connect() {
+
+  if (reconnectTimer) {
+
+    clearTimeout(
+      reconnectTimer
+    );
+
+    reconnectTimer = null;
+  }
+
+
+  if (
+    socket &&
+    (
+      socket.readyState === WebSocket.OPEN ||
+      socket.readyState === WebSocket.CONNECTING
+    )
+  ) {
+
+    socket.close();
+
+  }
+
+
+  setStatus(
+    "Conectando servidor..."
+  );
+
+
+  console.log(
+    "WebSocket:",
+    WS_URL
+  );
+
+
+  socket =
+    new WebSocket(
+      WS_URL
+    );
+
+
+  socket.binaryType =
+    "arraybuffer";
+
+
+  // -------------------------------------------------
+  // SERVIDOR CONECTADO
+  // -------------------------------------------------
+
+  socket.onopen = () => {
+
+    console.log(
+      "Servidor WebSocket conectado"
+    );
+
+
+    setStatus(
+      "SERVIDOR CONECTADO"
+    );
+
+
+    frameInFlight = false;
+
+    pendingFrame = false;
+
+  };
+
+
+  // -------------------------------------------------
+  // MENSAJE
+  // -------------------------------------------------
+
+  socket.onmessage = event => {
+
+    if (
+      typeof event.data !== "string"
+    ) {
+
+      return;
+    }
+
+
+    const message =
+      event.data;
+
+
+    console.log(
+      "Servidor:",
+      message
+    );
+
+
+    switch (message) {
+
+      // ---------------------------------------------
+      // ESP32 CONECTADO AL GO SERVER
+      // ---------------------------------------------
+
+      case "DEVICE_ONLINE":
+
+        deviceOnline = true;
+
+        deviceReady = false;
+
+        frameInFlight = false;
+
+        pendingFrame = false;
+
+
+        setDeviceStatus(
+          "conectado, inicializando..."
+        );
+
+        break;
+
+
+      // ---------------------------------------------
+      // ESP32 LISTO
+      // ---------------------------------------------
+
+      case "DEVICE_READY":
+
+        deviceOnline = true;
+
+        deviceReady = true;
+
+        frameInFlight = false;
+
+        pendingFrame = false;
+
+
+        setDeviceStatus(
+          "LISTO"
+        );
+
+
+        // Mostrar inmediatamente
+        // el contenido actual del canvas.
+
+        sendFrame();
+
+        break;
+
+
+      // ---------------------------------------------
+      // ESP32 DESCONECTADO
+      // ---------------------------------------------
+
+      case "DEVICE_OFFLINE":
+
+        deviceOnline = false;
+
+        deviceReady = false;
+
+        frameInFlight = false;
+
+        pendingFrame = false;
+
+
+        setDeviceStatus(
+          "DESCONECTADO"
+        );
+
+        break;
+
+
+      // ---------------------------------------------
+      // ESP32 TODAVÍA NO LISTO
+      // ---------------------------------------------
+
+      case "DEVICE_NOT_READY":
+
+        deviceReady = false;
+
+        frameInFlight = false;
+
+
+        setDeviceStatus(
+          "inicializando..."
+        );
+
+        break;
+
+
+      // ---------------------------------------------
+      // ACK DEL OLED
+      // ---------------------------------------------
+
+      case "ACK":
+
+        frameInFlight = false;
+
+
+        if (pendingFrame) {
+
+          pendingFrame = false;
+
+          sendFrame();
+
+        }
+
+        break;
+
+
+      // ---------------------------------------------
+      // ERROR
+      // ---------------------------------------------
+
+      case "ERROR_SIZE":
+
+      case "ERROR_FRAME_SIZE":
+
+        console.error(
+          "Error de tamaño de frame"
+        );
+
+        frameInFlight = false;
+
+        break;
+
+    }
+
+  };
+
+
+  // -------------------------------------------------
+  // ERROR
+  // -------------------------------------------------
+
+  socket.onerror = error => {
+
+    console.error(
+      "WebSocket error:",
+      error
+    );
+
+
+    setStatus(
+      "ERROR WEBSOCKET"
+    );
+
+  };
+
+
+  // -------------------------------------------------
+  // DESCONECTADO
+  // -------------------------------------------------
+
+  socket.onclose = () => {
+
+    console.log(
+      "Servidor desconectado"
+    );
+
+
+    setStatus(
+      "SERVIDOR DESCONECTADO"
+    );
+
+
+    deviceOnline = false;
+
+    deviceReady = false;
+
+    frameInFlight = false;
+
+    pendingFrame = false;
+
+
+    setDeviceStatus(
+      "esperando..."
+    );
+
+
+    scheduleReconnect();
+
+  };
+
+}
+
+
+// =====================================================
+// RECONEXIÓN
+// =====================================================
+
+function scheduleReconnect() {
+
+  if (reconnectTimer)
+    return;
+
+
+  reconnectTimer =
+    setTimeout(
+      () => {
+
+        reconnectTimer = null;
+
+        connect();
+
+      },
+      2000
+    );
+
+}
+
+
+// =====================================================
+// CANVAS -> SSD1306
+// =====================================================
+
+function createFrame() {
+
+  const image =
+    ctx.getImageData(
+      0,
+      0,
+      WIDTH,
+      HEIGHT
+    );
+
+
+  const pixels =
+    image.data;
+
+
+  const buffer =
+    new Uint8Array(
+      FRAME_SIZE
+    );
+
+
+  for (
+    let y = 0;
+    y < HEIGHT;
+    y++
+  ) {
+
+    for (
+      let x = 0;
+      x < WIDTH;
+      x++
+    ) {
+
+      const pixelIndex =
+        (
+          y * WIDTH + x
+        ) * 4;
+
+
+      const r =
+        pixels[
+          pixelIndex
+        ];
+
+
+      const g =
+        pixels[
+          pixelIndex + 1
+        ];
+
+
+      const b =
+        pixels[
+          pixelIndex + 2
+        ];
+
+
+      const brightness =
+        r + g + b;
+
+
+      if (
+        brightness > 384
+      ) {
+
+        const byteIndex =
+          x +
+          Math.floor(
+            y / 8
+          ) * WIDTH;
+
+
+        const bit =
+          y & 7;
+
+
+        buffer[
+          byteIndex
+        ] |=
+          1 << bit;
+
+      }
+
+    }
+
+  }
+
+
+  return buffer;
+
+}
+
+
+// =====================================================
+// ENVIAR FRAME
+// =====================================================
+
+function sendFrame() {
+
+  if (!socket)
+    return;
+
+
+  if (
+    socket.readyState !==
+    WebSocket.OPEN
+  )
+    return;
+
+
+  if (!deviceOnline)
+    return;
+
+
+  if (!deviceReady)
+    return;
+
+
+  // Hay un frame siendo procesado.
+  //
+  // No acumulamos frames.
+  //
+  // Solamente recordamos que existe
+  // una versión más reciente.
+
+  if (frameInFlight) {
+
+    pendingFrame = true;
+
+    return;
+
+  }
+
+
+  const frame =
+    createFrame();
+
+
+  if (
+    frame.byteLength !==
+    FRAME_SIZE
+  ) {
+
+    console.error(
+      "Frame inválido:",
+      frame.byteLength
+    );
+
+    return;
+  }
+
+
+  frameInFlight = true;
+
+
+  try {
+
+    socket.send(
+      frame
+    );
+
+  } catch (error) {
+
+    console.error(
+      "Error enviando frame:",
+      error
+    );
+
+
+    frameInFlight = false;
+
+  }
+
+}
+
+
+// =====================================================
+// LIMPIAR
+// =====================================================
+
+function clearScreen() {
+
+  stopAnimation();
+
+
+  ctx.fillStyle =
+    "black";
+
+
+  ctx.fillRect(
+    0,
+    0,
+    WIDTH,
+    HEIGHT
+  );
+
+
+  sendFrame();
+
+}
+
+
+// =====================================================
+// POSICIÓN
+// =====================================================
+
+function getCanvasPosition(
+  clientX,
+  clientY
+) {
+
+  const rect =
+    canvas.getBoundingClientRect();
+
+
+  let x =
+    Math.floor(
+      (
+        clientX -
+        rect.left
+      ) *
+      WIDTH /
+      rect.width
+    );
+
+
+  let y =
+    Math.floor(
+      (
+        clientY -
+        rect.top
+      ) *
+      HEIGHT /
+      rect.height
+    );
+
+
+  x =
+    Math.max(
+      0,
+      Math.min(
+        WIDTH - 1,
+        x
+      )
+    );
+
+
+  y =
+    Math.max(
+      0,
+      Math.min(
+        HEIGHT - 1,
+        y
+      )
+    );
+
+
+  return {
+    x,
+    y
+  };
+
+}
+
+
+// =====================================================
+// DIBUJAR
+// =====================================================
+
+function drawAt(
+  clientX,
+  clientY
+) {
+
+  const position =
+    getCanvasPosition(
+      clientX,
+      clientY
+    );
+
+
+  ctx.fillStyle =
+    "white";
+
+
+  ctx.fillRect(
+    position.x - 1,
+    position.y - 1,
+    3,
+    3
+  );
+
+
+  sendFrame();
+
+}
+
+
+// =====================================================
+// POINTER EVENTS
+// =====================================================
+
+canvas.addEventListener(
+  "pointerdown",
+  event => {
+
+    drawing = true;
+
+
+    canvas.setPointerCapture(
+      event.pointerId
+    );
+
+
+    drawAt(
+      event.clientX,
+      event.clientY
+    );
+
+  }
+);
+
+
+canvas.addEventListener(
+  "pointermove",
+  event => {
+
+    if (!drawing)
+      return;
+
+
+    drawAt(
+      event.clientX,
+      event.clientY
+    );
+
+  }
+);
+
+
+canvas.addEventListener(
+  "pointerup",
+  event => {
+
+    drawing = false;
+
+
+    try {
+
+      canvas.releasePointerCapture(
+        event.pointerId
+      );
+
+    } catch (_) {}
+
+  }
+);
+
+
+canvas.addEventListener(
+  "pointercancel",
+  () => {
+
+    drawing = false;
+
+  }
+);
+
+
+// =====================================================
+// ANIMACIÓN
+// =====================================================
+
+function startAnimation() {
+
+  if (animationRunning)
+    return;
+
+
+  animationRunning = true;
+
+  lastAnimationTime = 0;
+
+
+  animationLoop(
+    performance.now()
+  );
+
+}
+
+
+// =====================================================
+// LOOP ANIMACIÓN
+// =====================================================
+
+function animationLoop(time) {
+
+  if (!animationRunning)
+    return;
+
+
+  animationRequest =
+    requestAnimationFrame(
+      animationLoop
+    );
+
+
+  if (
+    time -
+    lastAnimationTime <
+    FRAME_INTERVAL
+  ) {
+
+    return;
+  }
+
+
+  lastAnimationTime =
+    time;
+
+
+  // Fondo
+
+  ctx.fillStyle =
+    "black";
+
+
+  ctx.fillRect(
+    0,
+    0,
+    WIDTH,
+    HEIGHT
+  );
+
+
+  // Texto
+
+  ctx.fillStyle =
+    "white";
+
+
+  ctx.font =
+    "8px monospace";
+
+
+  ctx.textBaseline =
+    "top";
+
+
+  ctx.fillText(
+    "STREAM OLED",
+    4,
+    3
+  );
+
+
+  // Línea
+
+  ctx.strokeStyle =
+    "white";
+
+
+  ctx.lineWidth =
+    1;
+
+
+  ctx.beginPath();
+
+
+  ctx.moveTo(
+    0,
+    15
+  );
+
+
+  ctx.lineTo(
+    WIDTH - 1,
+    15
+  );
+
+
+  ctx.stroke();
+
+
+  // Pelota
+
+  ctx.fillStyle =
+    "white";
+
+
+  ctx.beginPath();
+
+
+  ctx.arc(
+    ballX,
+    37,
+    5,
+    0,
+    Math.PI * 2
+  );
+
+
+  ctx.fill();
+
+
+  // Barra
+
+  ctx.fillRect(
+    5,
+    55,
+    Math.floor(
+      ballX * 0.8
+    ),
+    3
+  );
+
+
+  // Movimiento
+
+  ballX +=
+    ballDirection * 3;
+
+
+  if (
+    ballX >= 121
+  ) {
+
+    ballX = 121;
+
+    ballDirection = -1;
+
+  }
+
+
+  if (
+    ballX <= 6
+  ) {
+
+    ballX = 6;
+
+    ballDirection = 1;
+
+  }
+
+
+  sendFrame();
+
+}
+
+
+// =====================================================
+// DETENER
+// =====================================================
+
+function stopAnimation() {
+
+  animationRunning = false;
+
+
+  if (
+    animationRequest !== null
+  ) {
+
+    cancelAnimationFrame(
+      animationRequest
+    );
+
+
+    animationRequest = null;
+
+  }
+
+}
+
+
+// =====================================================
+// START
+// =====================================================
+
+window.addEventListener(
+  "load",
+  () => {
+
+    connect();
+
+  }
+);
+
+</script>
+
+</body>
+
+</html>

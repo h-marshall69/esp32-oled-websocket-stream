@@ -1,0 +1,42 @@
+# compose.override.yaml
+
+services:
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile.dev
+
+    ports:
+      - "${BACKEND_PORT:-8080}:8080"
+
+    volumes:
+      - ./backend:/app
+
+    environment:
+      APP_ENV: development
+      PORT: "8080"
+
+      WS_ALLOWED_ORIGINS: "${WS_ALLOWED_ORIGINS}"
+      BROWSER_WS_TOKEN: "${BROWSER_WS_TOKEN:-}"
+      DEVICE_TOKENS: "${DEVICE_TOKENS:-}"
+
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile.dev
+
+    ports:
+      - "${FRONTEND_PORT:-5173}:5173"
+
+    volumes:
+      - ./frontend:/app
+      - frontend-node-modules:/app/node_modules
+
+    environment:
+      VITE_WS_URL: "${VITE_WS_URL}"
+      VITE_DEVICE_ID: "${VITE_DEVICE_ID}"
+
+
+volumes:
+  frontend-node-modules:

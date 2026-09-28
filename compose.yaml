@@ -1,0 +1,18 @@
+# compose.yaml
+
+services:
+  backend:
+    networks:
+      - oled-network
+
+  frontend:
+    depends_on:
+      - backend
+
+    networks:
+      - oled-network
+
+
+networks:
+  oled-network:
+    driver: bridge

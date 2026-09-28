@@ -1,0 +1,170 @@
+.app {
+  width: min(1100px, calc(100% - 32px));
+  margin: 0 auto;
+  padding: 40px 0 64px;
+}
+
+.app-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 24px;
+  margin-bottom: 28px;
+}
+
+.app-header h1 {
+  margin: 4px 0 8px;
+  font-size: clamp(2rem, 5vw, 3.4rem);
+  line-height: 1;
+}
+
+.app-header p {
+  max-width: 650px;
+  margin: 0;
+  color: #a9b1bd;
+}
+
+.eyebrow {
+  font-size: 0.8rem;
+  font-weight: 700;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+}
+
+.device-badge {
+  padding: 10px 14px;
+  border: 1px solid #313844;
+  border-radius: 999px;
+  background: #171b22;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+
+.app-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 320px;
+  gap: 24px;
+  align-items: start;
+}
+
+.canvas-section,
+.status-panel {
+  border: 1px solid #2b313c;
+  border-radius: 18px;
+  background: #151920;
+  box-shadow: 0 18px 60px rgb(0 0 0 / 20%);
+}
+
+.canvas-section {
+  padding: 20px;
+}
+
+.toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  align-items: center;
+  margin-bottom: 18px;
+}
+
+.toolbar label {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  margin-left: auto;
+  color: #c8ced8;
+  font-size: 0.9rem;
+}
+
+button {
+  border: 1px solid #39414e;
+  border-radius: 10px;
+  padding: 9px 13px;
+  background: #222936;
+  color: #f4f7fb;
+  font: inherit;
+  cursor: pointer;
+}
+
+button:hover {
+  background: #2a3240;
+}
+
+button.active {
+  border-color: #f4f7fb;
+  background: #f4f7fb;
+  color: #11151b;
+}
+
+.secondary-button {
+  background: transparent;
+}
+
+.oled-shell {
+  width: 100%;
+  overflow: hidden;
+  padding: 18px;
+  border-radius: 14px;
+  background: #090b0f;
+}
+
+.oled-canvas {
+  display: block;
+  width: 100%;
+  max-width: 768px;
+  aspect-ratio: 2 / 1;
+  margin: 0 auto;
+  border: 1px solid #273142;
+  background: #000;
+  image-rendering: pixelated;
+  cursor: crosshair;
+  touch-action: none;
+}
+
+.canvas-help {
+  margin: 12px 0 0;
+  color: #7f8998;
+  font-size: 0.85rem;
+  text-align: center;
+}
+
+.status-panel {
+  display: grid;
+  gap: 14px;
+  padding: 20px;
+}
+
+.status-row {
+  display: grid;
+  gap: 4px;
+}
+
+.status-row span {
+  color: #7f8998;
+  font-size: 0.78rem;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+
+.status-row strong,
+.status-row code {
+  overflow-wrap: anywhere;
+}
+
+.status-url code {
+  font-size: 0.78rem;
+}
+
+@media (max-width: 850px) {
+  .app-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .app-header {
+    flex-direction: column;
+  }
+
+  .toolbar label {
+    width: 100%;
+    margin-left: 0;
+  }
+}

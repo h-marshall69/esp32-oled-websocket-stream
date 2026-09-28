@@ -1,0 +1,20 @@
+# Environment
+.env
+.env.*
+!.env.example
+
+# ESP32 local configuration
+oled/secrets.h
+
+# Go / Air build files
+tmp/
+*.log
+*.out
+
+# IDE
+.idea/
+.vscode/
+
+# OS
+.DS_Store
+Thumbs.db
